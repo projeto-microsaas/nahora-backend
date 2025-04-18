@@ -1,35 +1,11 @@
 {
   "name": "nahora-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/projeto-microsaas/nahora-backend.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/projeto-microsaas/nahora-backend/issues"
-  },
-  "homepage": "https://github.com/projeto-microsaas/nahora-backend#readme",
   "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
-    "express": "^5.1.0",
-    "mongoose": "^8.13.2"
-  },
-  "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.1",
-    "@types/mongoose": "^5.11.96",
-    "@types/node": "^22.14.1",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "express": "^4.18.2",
+    "mongoose": "^8.0.0"
   }
 }
