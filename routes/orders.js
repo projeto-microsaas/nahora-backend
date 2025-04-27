@@ -1,67 +1,39 @@
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../middleware/auth');
 const Order = require('../models/Order');
-const mongoose = require('mongoose');
+const User = require('../models/User');
+const authMiddleware = require('../middleware/auth');
+const asyncHandler = require('../middleware/asyncHandler');
 
-// Buscar todos os pedidos
-router.get('/', authMiddleware, async (req, res) => {
-  try {
-    const orders = await Order.find();
-    res.json(orders);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+const merchantAuth = authMiddleware('merchant');
+
+router.post('/', merchantAuth, asyncHandler(async (req, res) => {
+  const { customerName, items, driverId } = req.body;
+  if (!customerName || !items) {
+    return res.status(400).json({ message: 'Nome do cliente e itens são obrigatórios' });
   }
-});
-
-// Criar um novo pedido
-router.post('/', authMiddleware, async (req, res) => {
-  try {
-    const { client, description, value, status } = req.body;
-    if (!client || !description || !value) {
-      return res.status(400).json({ message: 'Client, description, and value are required' });
-    }
-
-    const order = new Order({
-      client,
-      description,
-      value,
-      status: status || 'pending',
-    });
-    await order.save();
-
-    res.status(201).json(order);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  if (typeof customerName !== 'string' || typeof items !== 'string') {
+    return res.status(400).json({ message: 'Nome do cliente e itens devem ser strings' });
   }
-});
-
-// Atualizar o status de um pedido
-router.patch('/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid order ID' });
+  if (driverId) {
+    const driver = await User.findById(driverId);
+    if (!driver || driver.role !== 'driver') {
+      return res.status(400).json({ message: 'Motorista inválido' });
     }
-
-    if (!status) {
-      return res.status(400).json({ message: 'Status is required' });
-    }
-
-    const order = await Order.findById(id);
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
-
-    order.status = status;
-    await order.save();
-
-    res.json(order);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
   }
-});
+  const order = new Order({
+    customerName,
+    items,
+    driverId: driverId || null,
+    status: driverId ? 'assigned' : 'pending',
+  });
+  await order.save();
+  res.status(201).json({ message: 'Pedido criado com sucesso', order });
+}));
+
+router.get('/', merchantAuth, asyncHandler(async (req, res) => {
+  const orders = await Order.find().populate('driverId', 'name email');
+  res.json(orders);
+}));
 
 module.exports = router;

@@ -1,75 +1,28 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
-const Delivery = require('../models/Delivery');
+const Order = require('../models/Order');
+const authMiddleware = require('../middleware/auth');
+const asyncHandler = require('../middleware/asyncHandler');
 
-const authMiddleware = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ message: 'Token não fornecido' });
-  }
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    res.status(401).json({ message: 'Token inválido' });
-  }
-};
+const driverAuth = authMiddleware('driver');
 
-router.get('/active', authMiddleware, async (req, res) => {
-  try {
-    const deliveries = await Delivery.find({ driverId: req.user.id, status: 'active' });
-    res.json(deliveries);
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao buscar entregas' });
-  }
-});
+router.get('/', driverAuth, asyncHandler(async (req, res) => {
+  const orders = await Order.find({ driverId: req.user.id }).populate('driverId', 'name email');
+  res.json(orders);
+}));
 
-router.get('/completed', authMiddleware, async (req, res) => {
-  try {
-    const deliveries = await Delivery.find({ driverId: req.user.id, status: 'completed' });
-    res.json(deliveries);
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao buscar entregas' });
+router.put('/:id', driverAuth, asyncHandler(async (req, res) => {
+  const { status } = req.body;
+  const order = await Order.findById(req.params.id);
+  if (!order) {
+    return res.status(404).json({ message: 'Pedido não encontrado' });
   }
-});
-
-router.patch('/:id/complete', authMiddleware, async (req, res) => {
-  try {
-    const delivery = await Delivery.findOne({ _id: req.params.id, driverId: req.user.id });
-    if (!delivery) {
-      return res.status(404).json({ message: 'Entrega não encontrada' });
-    }
-    delivery.status = 'completed';
-    await delivery.save();
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao marcar entrega como concluída' });
+  if (order.driverId.toString() !== req.user.id) {
+    return res.status(403).json({ message: 'Acesso negado' });
   }
-});
-
-router.post('/', authMiddleware, async (req, res) => {
-  try {
-    if (req.user.role !== 'merchant') {
-      return res.status(403).json({ message: 'Apenas comerciantes podem criar entregas' });
-    }
-    const { pickupAddress, deliveryAddress, recipient, weight, value, driverId } = req.body;
-    const delivery = new Delivery({
-      pickupAddress,
-      deliveryAddress,
-      recipient,
-      weight,
-      value,
-      driverId,
-      merchantId: req.user.id,
-      status: 'active',
-    });
-    await delivery.save();
-    res.status(201).json(delivery);
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao criar entrega' });
-  }
-});
+  order.status = status;
+  await order.save();
+  res.json({ message: 'Status atualizado com sucesso', order });
+}));
 
 module.exports = router;
