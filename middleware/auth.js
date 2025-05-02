@@ -1,21 +1,41 @@
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
-const authMiddleware = (role) => (req, res, next) => {
-  console.log('Middleware chamado com role:', role); // Adicionar log
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ message: 'Token não fornecido' });
-  }
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+
+router.post('/login', async (req, res) => {
+  const { email, password, role } = req.body;
+
+  console.log('Dados recebidos no login:', { email, password, role });
+
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (role && decoded.role !== role) {
-      return res.status(403).json({ message: 'Acesso negado' });
+    const user = await User.findOne({ email, role });
+    if (!user) {
+      console.log('Usuário não encontrado:', { email, role });
+      return res.status(401).json({ message: 'Credenciais inválidas' });
     }
-    req.user = decoded;
-    next();
-  } catch (error) {
-    res.status(401).json({ message: 'Token inválido' });
-  }
-};
 
-module.exports = authMiddleware;
+    console.log('Usuário encontrado:', user);
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      console.log('Senha incorreta para o usuário:', email);
+      return res.status(401).json({ message: 'Credenciais inválidas' });
+    }
+
+    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, {
+      expiresIn: '1h',
+    });
+
+    console.log('Login bem-sucedido, token gerado:', token);
+    res.json({ token, user: { email: user.email, role: user.role } });
+  } catch (err) {
+    console.error('Erro no login:', err);
+    res.status(500).json({ message: 'Erro no servidor' });
+  }
+});
+
+module.exports = router;

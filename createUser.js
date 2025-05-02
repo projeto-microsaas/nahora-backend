@@ -1,38 +1,41 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcryptjs'); // Já incluído
 const User = require('./models/User');
 
-// Configurar strictQuery para suprimir o aviso de depreciação
-mongoose.set('strictQuery', true);
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/nahora';
 
-mongoose.connect('mongodb://mongo:27017/nahora')
-  .then(() => console.log('Conectado ao MongoDB'))
-  .catch(err => console.error('Erro ao conectar ao MongoDB:', err));
+console.log('Tentando conectar ao MongoDB com URI:', MONGO_URI);
 
-const createUser = async () => {
-  try {
-    // Verificar se o usuário já existe
-    const existingUser = await User.findOne({ email: 'merchant@example.com' });
-    if (existingUser) {
-      console.log('Usuário já existe:', existingUser);
-      mongoose.connection.close();
+mongoose.connect(MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 20000,
+  connectTimeoutMS: 30000,
+})
+  .then(async () => {
+    console.log('Conectado ao MongoDB com sucesso');
+    const user = await User.findOne({ email: 'merchant@example.com' });
+    if (user) {
+      console.log('Usuário já existe:', user.email);
       return;
     }
 
-    const hashedPassword = await bcrypt.hash('password123', 10);
-    const user = new User({
-      email: 'merchant@example.com',
-      password: hashedPassword,
-      role: 'merchant',
-      name: 'Merchant User'
-    });
-    await user.save();
-    console.log('Usuário criado com sucesso:', user);
-    mongoose.connection.close();
-  } catch (error) {
-    console.error('Erro ao criar usuário:', error);
-    mongoose.connection.close();
-  }
-};
+    const hashedPassword = await bcrypt.hash('password123', 10); // Hash da senha
 
-createUser();
+    const newUser = new User({
+      name: 'Merchant User',
+      email: 'merchant@example.com',
+      password: hashedPassword, // Use a senha hashada
+      role: 'Comerciante',
+    });
+
+    await newUser.save();
+    console.log('Usuário criado:', newUser.email);
+  })
+  .catch(err => {
+    console.error('Erro ao criar usuário:', err);
+  })
+  .finally(() => {
+    console.log('Fechando conexão com MongoDB');
+    mongoose.connection.close();
+  });

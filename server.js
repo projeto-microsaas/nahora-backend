@@ -1,8 +1,8 @@
+const mongoose = require('mongoose');
 const express = require('express');
-const cors = require('cors'); // Importe o cors
+const cors = require('cors');
 const app = express();
 
-// Configure o CORS para permitir requisições de http://localhost:3000
 app.use(cors({
   origin: 'http://localhost:3000',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -11,15 +11,25 @@ app.use(cors({
 
 app.use(express.json());
 
-app.post('/api/auth/login', (req, res) => {
-  const { email, password, role } = req.body;
-  if (email === 'merchant@example.com' && password === 'password123' && role === 'Comerciante') {
-    res.json({ token: 'fake-jwt-token', user: { email, role } });
-  } else {
-    res.status(401).json({ error: 'Credenciais inválidas' });
-  }
-});
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/nahora';
+
+console.log('Tentando conectar ao MongoDB com URI:', MONGO_URI);
+
+mongoose.connect(MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 20000,
+  connectTimeoutMS: 30000,
+})
+  .then(() => console.log('Conectado ao MongoDB com sucesso'))
+  .catch(err => {
+    console.error('Erro ao conectar ao MongoDB:', err);
+    process.exit(1);
+  });
+
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/orders', require('./routes/orders')); // Adicione esta linha
 
 app.listen(5000, () => {
-  console.log('Server running on port 5000');
+  console.log('Servidor rodando na porta 5000');
 });
