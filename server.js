@@ -1,35 +1,22 @@
-const mongoose = require('mongoose');
 const express = require('express');
+const mongoose = require('mongoose');
 const cors = require('cors');
+const authRoutes = require('./routes/auth');
+const orderRoutes = require('./routes/orders');
+
 const app = express();
 
-app.use(cors({
-  origin: 'http://localhost:3000',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-
+app.use(cors());
 app.use(express.json());
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/nahora';
-
-console.log('Tentando conectar ao MongoDB com URI:', MONGO_URI);
-
-mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 20000,
-  connectTimeoutMS: 30000,
-})
+const MONGODB_URI = 'mongodb://mongodb:27017/nahora';
+console.log('Tentando conectar ao MongoDB com URI:', MONGODB_URI);
+mongoose.connect(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('Conectado ao MongoDB com sucesso'))
-  .catch(err => {
-    console.error('Erro ao conectar ao MongoDB:', err);
-    process.exit(1);
-  });
+  .catch((err) => console.error('Erro ao conectar ao MongoDB:', err));
 
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/orders', require('./routes/orders')); // Adicione esta linha
+app.use('/api/auth', authRoutes);
+app.use('/api/orders', orderRoutes);
 
-app.listen(5000, () => {
-  console.log('Servidor rodando na porta 5000');
-});
+const PORT = 5000;
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));

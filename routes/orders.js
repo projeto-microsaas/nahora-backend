@@ -6,7 +6,6 @@ const User = require('../models/User');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
-// Middleware para autenticar o token
 const authenticateToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'Token não fornecido' });
@@ -20,7 +19,6 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
-// Listar pedidos (somente do comerciante autenticado)
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const orders = await Order.find({ merchant: req.user.id })
@@ -33,13 +31,16 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Criar um pedido
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { description } = req.body;
+    const { description, total } = req.body;
+    if (!description) {
+      return res.status(400).json({ message: 'A descrição do pedido é obrigatória' });
+    }
     const order = new Order({
       merchant: req.user.id,
       description,
+      total: total || 0, // Usar o valor enviado ou 0 como padrão
     });
     await order.save();
     res.status(201).json(order);
@@ -49,7 +50,6 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Aceitar um pedido (somente motoristas)
 router.post('/:id/accept', authenticateToken, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
