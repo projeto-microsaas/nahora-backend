@@ -1,15 +1,12 @@
 const mongoose = require('mongoose');
+
 const deliverySchema = new mongoose.Schema({
-  pickupAddress: { type: String, required: true },
-  deliveryAddress: { type: String, required: true },
-  recipient: {
-    name: { type: String, required: true },
-    phone: { type: String, required: true },
-  },
-  weight: { type: Number, required: true },
-  value: { type: Number, required: true },
-  status: { type: String, enum: ['active', 'completed'], default: 'active' },
-  driverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  merchantId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  customer: { type: String, required: true },
+  address: { type: String, required: true },
+  items: { type: String, required: true },
+  status: { type: String, enum: ['pending', 'accepted', 'picked', 'delivered'], default: 'pending' },
+  createdAt: { type: Date, default: Date.now },
+  driver: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 });
+
 module.exports = mongoose.model('Delivery', deliverySchema);
