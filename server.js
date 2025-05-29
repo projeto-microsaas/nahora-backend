@@ -1,89 +1,57 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
+const authRoutes = require("./routes/authRoutes");
+const deliveryRoutes = require("./routes/deliveryRoutes");
+const categoryRoutes = require("./routes/categoryRoutes");
+const productRoutes = require("./routes/productRoutes");
+const userRoutes = require("./routes/userRoutes");
+const statsRoutes = require("./routes/statsRoutes");
+const orderRoutes = require("./routes/orderRoutes");
+const auth = require("./middleware/auth");
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+require("dotenv").config();
 
-const JWT_SECRET = "your_jwt_secret"; // Definida como constante
+// Middleware
+app.use(cors()); // Permite requisições de origens diferentes
+app.use(express.json()); // Para parsear JSON no body das requisições
 
-mongoose.connect("mongodb://mongodb:27017/nahora", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-  .then(() => console.log("Conectado ao MongoDB com sucesso"))
-  .catch(err => console.error("Erro na conexão com MongoDB:", err));
+// Conexão ao MongoDB
+const mongoURI = process.env.MONGO_URI || "mongodb://mongodb:27017/nahora"; // URI do MongoDB, padrão para Docker
+console.log("Tentando conectar ao MongoDB com URI:", mongoURI); // Log para depuração
+mongoose
+  .connect(mongoURI, {
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 10000,
+  })
+  .then(() => console.log("Conectado ao MongoDB"))
+  .catch((err) => console.error("Erro ao conectar ao MongoDB:", err));
 
-const userSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+// Rotas
+app.use("/api/auth", authRoutes); // Rotas de autenticação
+app.use("/api/deliveries", auth, deliveryRoutes); // Rotas de entregas
+app.use("/api/categories", auth, categoryRoutes); // Rotas de categorias
+app.use("/api/products", auth, productRoutes); // Rotas de produtos
+app.use("/api/users", auth, userRoutes); // Rotas de usuários
+app.use("/api/stats", auth, statsRoutes); // Rotas de estatísticas
+app.use("/api/orders", auth, orderRoutes); // Rotas de pedidos
+
+// Rota de teste
+app.get("/", (req, res) => {
+  res.json({ message: "API do Javai Delivery rodando!" });
 });
 
-const deliverySchema = new mongoose.Schema({
-  customer: String,
-  phone: String,
-  pickupAddress: String,
-  deliveryAddress: String,
-  packageDetails: String,
-  instructions: String,
-  status: String,
-  createdAt: { type: Date, default: Date.now },
+// Middleware de erro
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: "Algo deu errado!", error: err.message });
 });
 
-const User = mongoose.model("User", userSchema);
-const Delivery = mongoose.model("Delivery", deliverySchema);
-
-// Rota de login
-app.post("/api/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(401).json({ success: false, message: "Usuário não encontrado" });
-    }
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, message: "Senha incorreta" });
-    }
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: "1h" });
-    res.json({ success: true, token });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
+// Iniciar servidor
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
 
-// Middleware para proteger rotas
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Token não fornecido" });
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      console.log("Erro ao verificar token:", err.message, "Token:", token); // Log detalhado
-      return res.status(403).json({ error: "Token inválido" });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-// Rota para buscar entregas
-app.get("/api/deliveries", authenticateToken, async (req, res) => {
-  try {
-    const { status } = req.query;
-    const query = status ? { status: { $in: status.split(",") } } : {};
-    const deliveries = await Delivery.find(query);
-    res.json(deliveries);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ... (outras rotas como /api/register, /api/deliveries POST, etc.)
-
-app.listen(5000, () => {
-  console.log("Backend rodando na porta 5000");
-});
+module.exports = app;
