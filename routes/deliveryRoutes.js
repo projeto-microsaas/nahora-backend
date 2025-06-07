@@ -1,63 +1,101 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const Delivery = require("../models/Delivery");
+const auth = require('../middleware/auth');
+const Delivery = require('../models/Delivery');
+const deliveryController = require('../controllers/deliveryController');
 
-// Criar entrega
-router.post("/", async (req, res) => {
-  try {
-    const { customer, address, items, total } = req.body;
-    const delivery = new Delivery({ customer, address, items, total, merchantId: req.user.id });
-    await delivery.save();
-    res.status(201).json(delivery);
-  } catch (error) {
-    res.status(400).json({ message: "Erro ao criar entrega", error });
-  }
-});
-
-// Listar todas as entregas
-router.get("/", async (req, res) => {
-  try {
-    const deliveries = await Delivery.find({ merchantId: req.user.id });
-    res.json(deliveries);
-  } catch (error) {
-    res.status(500).json({ message: "Erro ao listar entregas", error });
-  }
-});
-
-// Detalhes de entrega
-router.get("/:id", async (req, res) => {
-  try {
-    const delivery = await Delivery.findOne({ _id: req.params.id, merchantId: req.user.id });
-    if (!delivery) return res.status(404).json({ message: "Entrega não encontrada" });
-    res.json(delivery);
-  } catch (error) {
-    res.status(500).json({ message: "Erro ao carregar entrega", error });
-  }
-});
-
-// Listar entregas ativas
-router.get("/active", async (req, res) => {
+router.get('/active-deliveries', auth, async (req, res) => {
   try {
     const deliveries = await Delivery.find({
+      status: { $in: ['pending', 'accepted', 'picked'] },
       merchantId: req.user.id,
-      status: { $in: ["pending", "accepted", "picked"] },
-    }).sort({ createdAt: -1 }); // Ordenar por mais recente
-
-    // Formatar os dados para o frontend
-    const formattedDeliveries = deliveries.map((delivery) => {
-      const timeAgo = Math.round((Date.now() - delivery.createdAt) / (1000 * 60)); // Tempo em minutos
-      return {
-        id: delivery._id,
-        name: delivery.customer,
-        address: delivery.address,
-        status: delivery.status.charAt(0).toUpperCase() + delivery.status.slice(1), // Ex.: "pending" -> "Pending"
-        timeAgo,
-      };
-    });
-
-    res.json(formattedDeliveries);
+    }).select('customer address status createdAt');
+    res.json(deliveries);
   } catch (error) {
-    res.status(500).json({ message: "Erro ao listar entregas ativas", error });
+    res.status(500).json({ message: 'Erro ao buscar entregas ativas', error: error.message });
+  }
+});
+
+router.post('/deliveries', auth, deliveryController.createDelivery);
+
+router.get('/deliveries/:id', auth, async (req, res) => {
+  try {
+    const delivery = await Delivery.findById(req.params.id);
+    if (!delivery) {
+      return res.status(404).json({ message: 'Entrega não encontrada' });
+    }
+    if (delivery.merchantId.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Acesso negado' });
+    }
+    res.json(delivery);
+  } catch (error) {
+    res.status(500).json({ message: 'Erro ao buscar entrega', error: error.message });
+  }
+});
+
+router.get('/status', auth, async (req, res) => {
+  try {
+    const onlineCouriers = await Delivery.countDocuments({ status: 'online' }); // Ajuste o modelo se necessário
+    const acceptanceTime = '~4 min'; // Substitua por lógica real se disponível
+    const systemStatus = onlineCouriers > 0 ? 'Operacional' : 'Indisponível';
+
+    res.status(200).json({
+      motoboysOnline: onlineCouriers,
+      acceptanceTime,
+      status: systemStatus,
+    });
+  } catch (error) {
+    console.error('Erro ao buscar status do sistema:', error);
+    res.status(500).json({ message: 'Erro ao buscar status do sistema', error });
+  }
+});
+
+router.get('/stats', auth, async (req, res) => {
+  try {
+    const stats = await Delivery.aggregate([
+      { $match: { merchantId: req.user.id } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          status: '$_id',
+          count: 1,
+        },
+      },
+    ]);
+
+    const deliveriesToday = await Delivery.countDocuments({
+      merchantId: req.user.id,
+      createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+    });
+    const activeDeliveries = await Delivery.countDocuments({
+      merchantId: req.user.id,
+      status: { $in: ['pending', 'accepted', 'picked'] },
+    });
+    const pendingDeliveries = stats.find(s => s.status === 'pending')?.count || 0;
+    const inRouteDeliveries = stats.find(s => s.status === 'picked')?.count || 0;
+    const dailyRevenue = await Delivery.aggregate([
+      { $match: { merchantId: req.user.id, createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) } } },
+      { $group: { _id: null, total: { $sum: '$price' } } },
+    ]).then(result => result[0]?.total || 0);
+    const averageTime = 0; // Implementar lógica real para tempo médio
+
+    res.status(200).json({
+      deliveriesToday,
+      activeDeliveries,
+      pendingDeliveries,
+      inRouteDeliveries,
+      averageTime,
+      dailyRevenue,
+    });
+  } catch (error) {
+    console.error('Erro ao buscar estatísticas:', error);
+    res.status(500).json({ message: 'Erro ao buscar estatísticas', error: error.message });
   }
 });
 

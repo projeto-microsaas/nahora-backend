@@ -1,14 +1,16 @@
-const express = require("express");
-const router = express.Router();
-const authenticateToken = require("../middleware/auth");
+router.get('/status', authenticateToken, async (req, res) => {
+  try {
+    const onlineCouriers = await Courier.countDocuments({ status: 'online' });
+    const acceptanceTime = '~4 min'; // Substitua por lógica real se disponível
+    const systemStatus = onlineCouriers > 0 ? 'Operacional' : 'Indisponível';
 
-router.get("/deliveries/active", authenticateToken, async (req, res) => {
-  // Verifique se o usuário tem a role correta (ex.: "Lojista")
-  if (req.user.role !== "Lojista") {
-    return res.status(403).json({ message: "Acesso negado: função insuficiente" });
+    res.status(200).json({
+      onlineCouriers,
+      acceptanceTime,
+      systemStatus,
+    });
+  } catch (error) {
+    console.error('Erro ao buscar status do sistema:', error);
+    res.status(500).json({ message: 'Erro ao buscar status do sistema', error });
   }
-  // Lógica para buscar entregas ativas
-  res.json([{ id: "1", status: "In Progress", driver: "John" }]);
 });
-
-module.exports = router;
