@@ -11,36 +11,44 @@ const auth = require("./middleware/auth");
 
 const app = express();
 
-// Middleware
-app.use(cors()); // Permite requisições de origens diferentes (ex.: frontend em localhost:3000)
-app.use(express.json()); // Para parsear JSON no body das requisições
+// Middleware básico
+app.use(cors());
+app.use(express.json());
+
+// Middleware de depuração antes das rotas
+app.use((req, res, next) => {
+  console.log("Middleware global - req.user antes das rotas:", req.user || "Não definido");
+  console.log("Requisição recebida:", req.method, req.url, "Headers:", req.headers);
+  next();
+});
 
 // Conexão ao MongoDB
-const mongoURI = "mongodb://localhost:27017/javai-delivery"; // Ajuste para sua URL do MongoDB
+const mongoURI = "mongodb://mongodb:27017/nahora"; // Ajustado para Docker
 mongoose
   .connect(mongoURI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => console.log("Conectado ao MongoDB"))
+  .then(() => console.log("Conectado ao MongoDB com sucesso"))
   .catch((err) => console.error("Erro ao conectar ao MongoDB:", err));
 
 // Rotas
-app.use("/api/auth", authRoutes); // Rotas de autenticação (login, registro, etc.)
-app.use("/api/deliveries", auth, deliveryRoutes); // Rotas de entregas (protegidas por autenticação)
-app.use("/api/categories", auth, categoryRoutes); // Rotas de categorias (protegidas por autenticação)
-app.use("/api/products", auth, productRoutes); // Rotas de produtos (protegidas por autenticação)
-app.use("/api/users", auth, userRoutes); // Rotas de usuários (protegidas por autenticação)
-app.use("/api/stats", auth, statsRoutes); // Rotas de estatísticas (protegidas por autenticação)
+app.use("/api/auth", authRoutes);
+app.use("/api/deliveries", auth, deliveryRoutes);
+app.use("/api/categories", auth, categoryRoutes);
+app.use("/api/products", auth, productRoutes);
+app.use("/api/users", auth, userRoutes);
+app.use("/api/stats", auth, statsRoutes);
 
 // Rota de teste
 app.get("/", (req, res) => {
-  res.json({ message: "API do Javai Delivery rodando!" });
+  res.json({ message: "API do NaHora rodando!" });
 });
 
-// Middleware de erro
+// Middleware de erro (último)
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.log("Middleware de erro - req.user antes da resposta:", req.user || "Não definido");
+  console.error("Erro global capturado:", err.stack);
   res.status(500).json({ message: "Algo deu errado!", error: err.message });
 });
 

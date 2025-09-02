@@ -1,49 +1,88 @@
-require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const http = require('http');
+const { Server } = require('socket.io');
 const authRoutes = require('./routes/authRoutes');
 const deliveryRoutes = require('./routes/deliveryRoutes');
+const statsRoutes = require('./routes/statsRoutes');
 const productRoutes = require('./routes/productRoutes');
-const userRoutes = require('./routes/userRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+  },
+});
 
-app.use(cors());
+// Middleware CORS
+app.use(cors({
+  origin: 'http://localhost:3000',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 app.use(express.json());
 
-const connectToMongoDB = async () => {
-  console.log('Tentando conectar ao MongoDB com URI:', process.env.MONGO_URI || 'mongodb://mongodb:27017/nahora');
+// Middleware de autenticação
+const authenticateToken = (req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Token ausente' });
+
   try {
-    await mongoose.connect(process.env.MONGO_URI || 'mongodb://mongodb:27017/nahora', {
-      serverSelectionTimeoutMS: 5000,
-      maxPoolSize: 10,
-      retryWrites: true,
-      retryReads: true,
-    });
-    console.log('Conectado ao MongoDB com sucesso');
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      return res.status(500).json({ message: 'Configuração inválida: JWT_SECRET ausente' });
+    }
+    const decoded = jwt.verify(token, secret);
+    req.user = { id: decoded.id };
+    next();
   } catch (error) {
-    console.error('Erro ao conectar ao MongoDB:', error);
-    setTimeout(connectToMongoDB, 5000);
+    console.error('Erro ao verificar token:', error.message);
+    res.status(403).json({ message: 'Token inválido' });
   }
 };
 
-connectToMongoDB();
+// Conectar ao MongoDB
+mongoose.connect(process.env.MONGO_URI || 'mongodb://mongodb:27017/nahora', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => console.log('Conectado ao MongoDB com sucesso'))
+  .catch(err => console.error('Erro ao conectar ao MongoDB:', err));
+mongoose.set('strictQuery', true);
 
-console.log('Carregando authRoutes...');
+// Registrar rotas
 app.use('/api/auth', authRoutes);
-console.log('Carregando deliveryRoutes...');
-app.use('/api', deliveryRoutes);
-console.log('Carregando productRoutes...');
-app.use('/api', productRoutes);
-console.log('Carregando userRoutes...');
-app.use('/api', userRoutes);
+app.use('/api/deliveries', authenticateToken, deliveryRoutes);
+app.use('/api/stats', authenticateToken, statsRoutes);
+app.use('/api/products', authenticateToken, productRoutes);
+app.use('/api/settings', authenticateToken, settingsRoutes);
 
-app.get('/', (req, res) => {
-  res.json({ message: 'API do Javai Delivery rodando!' });
+// Middleware para rotas não encontradas
+app.use((req, res, next) => {
+  console.log(`Rota não encontrada: ${req.path}`);
+  res.status(404).json({ message: 'Rota não encontrada' });
 });
+
+// Gerenciar conexões WebSocket
+io.on('connection', (socket) => {
+  console.log('Usuário conectado:', socket.id);
+
+  socket.on('join', (userId) => {
+    socket.join(userId); // Junta o usuário a uma sala específica baseada no ID
+    console.log(`Usuário ${userId} entrou na sala`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Usuário desconectado:', socket.id);
+  });
+});
+
+module.exports = { app, io };
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));

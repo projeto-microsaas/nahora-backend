@@ -1,32 +1,14 @@
 const mongoose = require('mongoose');
 
-const productSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  price: { type: Number, required: true },
-  category: { type: String },
-  quantity: { type: Number, default: 1 },
-});
-
-const orderSchema = new mongoose.Schema({
-  products: [productSchema],
-  instructions: { type: String },
-  total: { type: Number, default: 0 },
-});
-
 const deliverySchema = new mongoose.Schema({
   customer: { type: String, required: true },
   address: { type: String, required: true },
-  status: {
-    type: String,
-    enum: ['pending', 'accepted', 'picked', 'delivered', 'canceled'],
-    default: 'pending',
-  },
-  createdAt: { type: Date, default: Date.now },
-  deliveredAt: { type: Date },
-  price: { type: Number, default: 0 },
+  products: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+  status: { type: String, default: 'pending' },
   merchantId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  updatedAt: { type: Date, default: Date.now },
-  order: orderSchema,
+  totalPrice: { type: Number, required: true }, // Novo campo para o valor total
+  estimatedArrival: { type: Number, default: 0 }, // Novo campo para tempo estimado (em minutos)
+  createdAt: { type: Date, default: Date.now },
 });
 
 module.exports = mongoose.model('Delivery', deliverySchema);

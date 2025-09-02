@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const mongoose = require('mongoose');
 
 module.exports = (req, res, next) => {
   const token = req.header("Authorization")?.replace("Bearer ", "");
@@ -16,7 +17,12 @@ module.exports = (req, res, next) => {
     }
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log("Token decodificado com sucesso:", decoded);
-    req.user = decoded;
+
+    if (!decoded.id || decoded.id === "stats" || !mongoose.Types.ObjectId.isValid(decoded.id)) {
+      throw new Error("ID de usuário inválido no token: " + JSON.stringify(decoded));
+    }
+    req.user = { id: decoded.id };
+    console.log("req.user definido como:", req.user);
     next();
   } catch (error) {
     console.error("Erro ao verificar token:", error.message);

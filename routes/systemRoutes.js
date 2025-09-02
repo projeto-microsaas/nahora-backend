@@ -1,3 +1,8 @@
+const express = require('express');
+const router = express.Router();
+const authenticateToken = require('../middleware/auth'); // Ajuste o caminho se necessário
+const Courier = require('../models/Courier'); // Ajuste o caminho se necessário
+
 router.get('/status', authenticateToken, async (req, res) => {
   try {
     const onlineCouriers = await Courier.countDocuments({ status: 'online' });
@@ -14,3 +19,5 @@ router.get('/status', authenticateToken, async (req, res) => {
     res.status(500).json({ message: 'Erro ao buscar status do sistema', error });
   }
 });
+
+module.exports = router;
