@@ -1,80 +1,66 @@
+// routes/productRoutes.js
 const express = require('express');
 const router = express.Router();
 const Product = require('../models/Product');
-const auth = require('../middleware/auth');
+const mongoose = require('mongoose');
 
-// GET /api/products - Lista todos os produtos do usuário autenticado
-router.get('/', auth, async (req, res) => {
+// GET /api/products - listar produtos do comerciante
+router.get('/', async (req, res) => {
   try {
-    // Para listar apenas produtos do usuário autenticado, descomente a linha abaixo:
-    // const products = await Product.find({ merchantId: req.user.id });
-    const products = await Product.find();
+    const merchantId = req.user?.id;
+    if (!merchantId || !mongoose.Types.ObjectId.isValid(merchantId)) {
+      return res.status(400).json({ message: 'ID do comerciante inválido ou não fornecido' });
+    }
+
+    const products = await Product.find({ merchantId });
     res.json(products);
   } catch (error) {
+    console.error('Erro ao buscar produtos:', error);
     res.status(500).json({ message: 'Erro ao buscar produtos', error: error.message });
   }
 });
 
-// POST /api/products - Cria um novo produto
-router.post('/', auth, async (req, res) => {
+// POST /api/products - criar novo produto
+router.post('/', async (req, res) => {
   try {
     const { name, price, category } = req.body;
+    const merchantId = req.user?.id;
+
     if (!name || !price) {
-      return res.status(400).json({ message: 'Nome e preço são obrigatórios' });
+      return res.status(400).json({ message: 'Nome e preço são obrigatórios.' });
     }
-    const product = new Product({
-      name,
-      price,
-      category,
-      merchantId: req.user.id,
-    });
-    await product.save();
-    res.status(201).json(product);
+    if (!merchantId || !mongoose.Types.ObjectId.isValid(merchantId)) {
+      return res.status(400).json({ message: 'ID do comerciante inválido.' });
+    }
+
+    const newProduct = new Product({ name, price, category, merchantId });
+    await newProduct.save();
+
+    res.status(201).json(newProduct);
   } catch (error) {
+    console.error('Erro ao criar produto:', error);
     res.status(500).json({ message: 'Erro ao criar produto', error: error.message });
   }
 });
 
-// GET /api/products/:id - Busca um produto pelo ID
-router.get('/:id', auth, async (req, res) => {
+// DELETE /api/products/:id - remover produto
+router.delete('/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const product = await Product.findOne({ _id: id, merchantId: req.user.id });
-    if (!product) {
-      return res.status(404).json({ message: 'Produto não encontrado' });
-    }
-    res.json(product);
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao buscar produto', error: error.message });
-  }
-});
+    const productId = req.params.id;
+    const merchantId = req.user?.id;
 
-// PUT /api/products/:id - Edita um produto
-router.put('/:id', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, price, category } = req.body;
-    const updated = await Product.findOneAndUpdate(
-      { _id: id, merchantId: req.user.id },
-      { name, price, category },
-      { new: true }
-    );
-    if (!updated) {
-      return res.status(404).json({ message: 'Produto não encontrado' });
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ message: 'ID de produto inválido' });
     }
-    res.json(updated);
-  } catch (error) {
-    res.status(500).json({ message: 'Erro ao atualizar produto', error: error.message });
-  }
-});
 
-// DELETE /api/products/:id - Remove um produto
-router.delete('/:id', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    await Product.deleteOne({ _id: id, merchantId: req.user.id });
+    const deleted = await Product.findOneAndDelete({ _id: productId, merchantId });
+    if (!deleted) {
+      return res.status(404).json({ message: 'Produto não encontrado ou não pertence a este comerciante' });
+    }
+
     res.json({ message: 'Produto excluído com sucesso' });
   } catch (error) {
+    console.error('Erro ao excluir produto:', error);
     res.status(500).json({ message: 'Erro ao excluir produto', error: error.message });
   }
 });

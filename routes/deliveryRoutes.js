@@ -4,237 +4,206 @@ const Delivery = require('../models/Delivery');
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
 
-// GET /api/deliveries/history - Lista o histórico de entregas com paginação e busca
-router.get('/history', async (req, res) => {
-  try {
-    const { search, page = 1, limit = 10, sort = 'createdAt' } = req.query;
-    const merchantId = req.user.id;
-
-    console.log('Parâmetros de busca:', { search, page, limit, sort, merchantId });
-
-    const query = { merchantId };
-    if (search && search.trim() !== '') {
-      query.$or = [
-        { customer: { $regex: search.trim(), $options: 'i' } },
-        { address: { $regex: search.trim(), $options: 'i' } },
-      ];
-      if (mongoose.Types.ObjectId.isValid(search.trim())) {
-        query.$or.push({ _id: mongoose.Types.ObjectId(search.trim()) });
-      }
-    }
-
-    const total = await Delivery.countDocuments(query);
-    const deliveries = await Delivery.find(query)
-      .sort({ [sort]: -1 })
-      .skip((page - 1) * limit)
-      .limit(Number(limit));
-
-    res.json({ deliveries, total, page, limit });
-  } catch (error) {
-    console.error('Erro ao buscar histórico:', error);
-    res.status(500).json({ message: 'Erro ao buscar histórico', error: error.message });
-  }
-});
-
-// GET /api/deliveries/:id - Busca uma entrega específica
-router.get('/:id', async (req, res) => {
-  try {
-    const delivery = await Delivery.findOne({ _id: req.params.id, merchantId: req.user.id });
-    if (!delivery) {
-      return res.status(404).json({ message: 'Entrega não encontrada ou não autorizada' });
-    }
-    res.json(delivery);
-  } catch (error) {
-    console.error('Erro ao buscar entrega por ID:', error);
-    res.status(500).json({ message: 'Erro ao buscar entrega', error: error.message });
-  }
-});
-
-// GET /api/deliveries - Lista todas as entregas do usuário autenticado
+// ======================
+// GET /api/deliveries (ativas)
+// ======================
 router.get('/', async (req, res) => {
   try {
-    const deliveries = await Delivery.find({ merchantId: req.user.id });
+    const { status } = req.query;
+    const query = { merchantId: req.user.id };
+    if (status) query.status = status;
+    else query.status = { $in: ['pending', 'scheduled', 'accepted'] };
+
+    const deliveries = await Delivery.find(query).populate('products');
     res.json(deliveries);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: 'Erro ao buscar entregas', error: error.message });
   }
 });
 
-// POST /api/deliveries - Cria uma nova entrega
+// ======================
+// GET /api/deliveries/history (todas)
+// ======================
+router.get('/history', async (req, res) => {
+  try {
+    const { search = '', page = 1, limit = 10, status = 'all' } = req.query;
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    const query = { merchantId: req.user.id };
+
+    // 🔹 Filtro por status (se não for "all")
+    if (status !== 'all') {
+      query.status = status;
+    }
+
+    // 🔹 Busca por cliente, endereço ou ID
+    if (search) {
+      const orFilters = [
+        { customer: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } },
+      ];
+
+      if (mongoose.Types.ObjectId.isValid(search)) {
+        orFilters.push({ _id: search });
+      }
+
+      query.$or = orFilters;
+    }
+
+    const deliveries = await Delivery.find(query)
+      .limit(limitNum)
+      .skip((pageNum - 1) * limitNum)
+      .sort({ createdAt: -1 })
+      .populate('products');
+
+    const total = await Delivery.countDocuments(query);
+
+    res.json({
+      deliveries,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum),
+    });
+  } catch (error) {
+    console.error('Erro ao buscar histórico de entregas:', error.message, error.stack);
+    res.status(500).json({ message: 'Erro ao buscar histórico', error: error.message });
+  }
+});
+
+// ======================
+// GET /api/deliveries/:id
+// ======================
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ message: 'ID de entrega inválido' });
+
+    const delivery = await Delivery.findOne({ _id: id, merchantId: req.user.id }).populate('products');
+    if (!delivery) return res.status(404).json({ message: 'Entrega não encontrada' });
+
+    res.json(delivery);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Erro ao buscar entrega', error: error.message });
+  }
+});
+
+// ======================
+// POST /api/deliveries
+// ======================
 router.post('/', async (req, res) => {
   try {
     const { customer, phone, address, products, instructions, totalPrice, estimatedArrival } = req.body;
-    const merchantId = req.user.id;
+    if (!customer || !phone || !address || !products || !totalPrice || !estimatedArrival)
+      return res.status(400).json({ message: 'Campos obrigatórios ausentes' });
 
-    if (!products || !Array.isArray(products) || products.length === 0) {
-      return res.status(400).json({ message: 'A entrega deve conter pelo menos um produto' });
-    }
+    if (!products.every(p => mongoose.Types.ObjectId.isValid(p)))
+      return res.status(400).json({ message: 'Um ou mais IDs de produtos são inválidos' });
 
-    if (!merchantId) {
-      return res.status(400).json({ message: 'ID do comerciante não fornecido' });
-    }
-
-    const productDocs = await Product.find({ _id: { $in: products } });
-    if (productDocs.length !== products.length) {
-      return res.status(400).json({ message: 'Um ou mais produtos não encontrados' });
-    }
-
-    const calculatedTotal = productDocs.reduce((sum, p) => sum + p.price, 0);
-    if (Math.abs(calculatedTotal - totalPrice) > 0.01) {
-      return res.status(400).json({ message: 'O totalPrice fornecido não corresponde ao cálculo dos produtos' });
-    }
-
-    if (estimatedArrival && (isNaN(estimatedArrival) || estimatedArrival <= 0)) {
-      return res.status(400).json({ message: 'EstimatedArrival deve ser um número positivo' });
-    }
+    const validProducts = await Product.find({ _id: { $in: products }, merchantId: req.user.id });
+    if (validProducts.length !== products.length)
+      return res.status(400).json({ message: 'Um ou mais produtos não pertencem ao comerciante' });
 
     const delivery = new Delivery({
-      customer,
-      phone,
-      address,
-      products,
-      merchantId,
-      totalPrice,
-      estimatedArrival: estimatedArrival || 15,
-      instructions,
-      status: 'pending',
+      customer, phone, address, products, instructions, totalPrice, estimatedArrival,
+      merchantId: req.user.id
     });
 
-    await delivery.save();
-    req.io.emit('newDelivery', { deliveryId: delivery._id, message: 'Nova entrega disponível' });
-    res.status(201).json({ message: 'Entrega solicitada com sucesso', delivery });
+    const savedDelivery = await delivery.save();
+    req.io.emit('newDelivery', savedDelivery);
+    res.status(201).json({ delivery: savedDelivery });
   } catch (error) {
-    console.error('Erro ao criar entrega:', error);
+    console.error(error);
     res.status(500).json({ message: 'Erro ao criar entrega', error: error.message });
   }
 });
 
-// POST /api/deliveries/schedule - Agendar uma nova entrega
+// ======================
+// POST /api/deliveries/schedule
+// ======================
 router.post('/schedule', async (req, res) => {
   try {
-    const { customer, phone, address, products, instructions, totalPrice, scheduledAt } = req.body;
-    const merchantId = req.user.id;
+    const { customer, phone, address, products, instructions, totalPrice, estimatedArrival, scheduledAt } = req.body;
+    if (!customer || !phone || !address || !products || !totalPrice || !estimatedArrival || !scheduledAt)
+      return res.status(400).json({ message: 'Campos obrigatórios ausentes' });
 
-    if (!products || !Array.isArray(products) || products.length === 0) {
-      return res.status(400).json({ message: 'A entrega deve conter pelo menos um produto' });
-    }
+    if (!products.every(p => mongoose.Types.ObjectId.isValid(p)))
+      return res.status(400).json({ message: 'Um ou mais IDs de produtos são inválidos' });
 
-    if (!scheduledAt || isNaN(Date.parse(scheduledAt))) {
-      return res.status(400).json({ message: 'Data de agendamento inválida' });
-    }
-
-    const productDocs = await Product.find({ _id: { $in: products } });
-    if (productDocs.length !== products.length) {
-      return res.status(400).json({ message: 'Um ou mais produtos não encontrados' });
-    }
-
-    const calculatedTotal = productDocs.reduce((sum, p) => sum + p.price, 0);
-    if (Math.abs(calculatedTotal - totalPrice) > 0.01) {
-      return res.status(400).json({ message: 'O totalPrice fornecido não corresponde ao cálculo dos produtos' });
-    }
+    const validProducts = await Product.find({ _id: { $in: products }, merchantId: req.user.id });
+    if (validProducts.length !== products.length)
+      return res.status(400).json({ message: 'Um ou mais produtos não pertencem ao comerciante' });
 
     const delivery = new Delivery({
-      customer,
-      phone,
-      address,
-      products,
-      merchantId,
-      totalPrice,
+      customer, phone, address, products, instructions, totalPrice, estimatedArrival,
+      merchantId: req.user.id,
       scheduledAt: new Date(scheduledAt),
-      instructions,
       status: 'scheduled',
     });
 
-    await delivery.save();
-    req.io.to('deliverer_all').emit('newDeliveryScheduled', { deliveryId: delivery._id, scheduledAt: delivery.scheduledAt });
-    res.status(201).json({ message: 'Entrega agendada com sucesso', delivery });
+    const savedDelivery = await delivery.save();
+    req.io.emit('newDeliveryScheduled', savedDelivery);
+    res.status(201).json({ delivery: savedDelivery });
   } catch (error) {
-    console.error('Erro ao agendar entrega:', error);
+    console.error(error);
     res.status(500).json({ message: 'Erro ao agendar entrega', error: error.message });
   }
 });
 
-// GET /api/deliveries/nearby - Lista entregas próximas para entregadores
-router.get('/nearby', async (req, res) => {
-  try {
-    const { latitude, longitude, radius = 5000 } = req.query; // Radius em metros (padrão: 5km)
-    if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) {
-      return res.status(400).json({ message: 'Latitude e longitude são obrigatórias' });
-    }
-
-    const deliveries = await Delivery.find({
-      status: 'scheduled',
-      location: {
-        $near: {
-          $geometry: { type: 'Point', coordinates: [parseFloat(longitude), parseFloat(latitude)] },
-          $maxDistance: parseInt(radius),
-        },
-      },
-    }).limit(10);
-
-    res.json(deliveries);
-  } catch (error) {
-    console.error('Erro ao buscar entregas próximas:', error);
-    res.status(500).json({ message: 'Erro ao buscar entregas próximas', error: error.message });
-  }
-});
-
-// PUT /api/deliveries/:id/accept - Aceita uma entrega
-router.put('/:id/accept', async (req, res) => {
-  try {
-    const delivery = await Delivery.findOneAndUpdate(
-      { _id: req.params.id, status: 'scheduled' },
-      { status: 'accepted', courierId: req.user.id }, // Assume que req.user.id é o ID do entregador
-      { new: true }
-    );
-    if (!delivery) {
-      return res.status(404).json({ message: 'Entrega não encontrada ou já aceita' });
-    }
-    req.io.to(delivery.merchantId).emit('deliveryUpdate', { deliveryId: delivery._id, status: 'accepted' });
-    res.json({ message: 'Entrega aceita com sucesso', delivery });
-  } catch (error) {
-    console.error('Erro ao aceitar entrega:', error);
-    res.status(500).json({ message: 'Erro ao aceitar entrega', error: error.message });
-  }
-});
-
-// PUT /api/deliveries/:id/cancel - Cancela uma entrega
+// ======================
+// PUT /api/deliveries/:id/cancel
+// ======================
 router.put('/:id/cancel', async (req, res) => {
   try {
+    const { id } = req.params;
     const { reason } = req.body;
-    const delivery = await Delivery.findOneAndUpdate(
-      { _id: req.params.id, merchantId: req.user.id, status: { $in: ['pending', 'scheduled'] } },
-      { status: 'cancelled', reason },
-      { new: true }
-    );
-    if (!delivery) {
-      return res.status(404).json({ message: 'Entrega não encontrada ou não pode ser cancelada' });
-    }
-    req.io.to(delivery.merchantId).emit('deliveryUpdate', { deliveryId: delivery._id, status: 'cancelled', reason });
-    res.json({ message: 'Entrega cancelada com sucesso', delivery });
+
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ message: 'ID de entrega inválido' });
+
+    const delivery = await Delivery.findOne({ _id: id, merchantId: req.user.id });
+    if (!delivery) return res.status(404).json({ message: 'Entrega não encontrada' });
+
+    delivery.status = 'cancelled';
+    delivery.reason = reason;
+    await delivery.save();
+
+    req.io.emit('deliveryUpdate', { id, status: 'cancelled', reason });
+    res.json({ message: 'Entrega cancelada com sucesso' });
   } catch (error) {
-    console.error('Erro ao cancelar entrega:', error);
+    console.error(error);
     res.status(500).json({ message: 'Erro ao cancelar entrega', error: error.message });
   }
 });
 
-// PUT /api/deliveries/:id/complete - Conclui uma entrega
-router.put('/:id/complete', async (req, res) => {
+// ======================
+// PUT /api/deliveries/delivery-status/:id
+// ======================
+router.put('/delivery-status/:id', async (req, res) => {
   try {
+    const { id } = req.params;
     const { note } = req.body;
-    const delivery = await Delivery.findOneAndUpdate(
-      { _id: req.params.id, status: 'accepted', courierId: req.user.id },
-      { status: 'completed', completedAt: new Date(), note },
-      { new: true }
-    );
-    if (!delivery) {
-      return res.status(404).json({ message: 'Entrega não encontrada ou não pode ser concluída' });
-    }
-    req.io.to(delivery.merchantId).emit('deliveryUpdate', { deliveryId: delivery._id, status: 'completed', note });
-    res.json({ message: 'Entrega concluída com sucesso', delivery });
+
+    if (!mongoose.Types.ObjectId.isValid(id))
+      return res.status(400).json({ message: 'ID de entrega inválido' });
+
+    const delivery = await Delivery.findOne({ _id: id, merchantId: req.user.id });
+    if (!delivery) return res.status(404).json({ message: 'Entrega não encontrada' });
+
+    delivery.status = 'completed';
+    delivery.note = note;
+    delivery.completedAt = new Date();
+    await delivery.save();
+
+    req.io.emit('deliveryUpdate', { id, status: 'completed', note });
+    res.json({ message: 'Entrega concluída com sucesso' });
   } catch (error) {
-    console.error('Erro ao concluir entrega:', error);
-    res.status(500).json({ message: 'Erro ao concluir entrega', error: error.message });
+    console.error(error);
+    res.status(500).json({ message: 'Erro ao completar entrega', error: error.message });
   }
 });
 
