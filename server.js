@@ -10,6 +10,8 @@ const deliveryRoutes = require('./routes/deliveryRoutes');
 const statsRoutes = require('./routes/statsRoutes');
 const productRoutes = require('./routes/productRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const addressRoutes = require('./routes/addressRoutes');
+const systemRoutes = require('./routes/systemRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,12 +25,19 @@ const io = new Server(server, {
 
 // Middleware CORS
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
+  credentials: true
 }));
 
 app.use(express.json());
+
+// Middleware de depuração simplificado
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
 
 // Adicionar io ao req para uso nas rotas
 app.use((req, res, next) => {
@@ -38,14 +47,22 @@ app.use((req, res, next) => {
 
 // Middleware de autenticação
 const authenticateToken = (req, res, next) => {
+  console.log('Middleware authenticateToken executado para:', req.url);
   const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'Token ausente' });
+  if (!token) {
+    console.log('Token ausente para:', req.url);
+    return res.status(401).json({ message: 'Token ausente' });
+  }
 
   try {
     const secret = process.env.JWT_SECRET;
-    if (!secret) return res.status(500).json({ message: 'JWT_SECRET ausente' });
+    if (!secret) {
+      console.log('JWT_SECRET ausente');
+      return res.status(500).json({ message: 'JWT_SECRET ausente' });
+    }
     const decoded = jwt.verify(token, secret);
     req.user = { id: decoded.id };
+    console.log('Token válido para usuário:', decoded.id);
     next();
   } catch (error) {
     console.error('Erro ao verificar token:', error.message);
@@ -54,7 +71,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 // Conectar ao MongoDB
-mongoose.connect(process.env.MONGO_URI || 'mongodb://mongodb:27017/nahora', {
+mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/nahora', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => console.log('Conectado ao MongoDB'))
@@ -68,6 +85,8 @@ app.use('/api/deliveries', authenticateToken, deliveryRoutes);
 app.use('/api/stats', authenticateToken, statsRoutes);
 app.use('/api/products', authenticateToken, productRoutes);
 app.use('/api/settings', authenticateToken, settingsRoutes);
+app.use('/api/addresses', authenticateToken, addressRoutes);
+app.use('/api/system', systemRoutes);
 
 // ==========================
 // Rota histórica de entregas
@@ -123,4 +142,4 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
-module.exports = { app, io };
+module.exports = { app };

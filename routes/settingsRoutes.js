@@ -6,7 +6,7 @@ const Business = require('../models/Business');
 const Notification = require('../models/Notification');
 const History = require('../models/History');
 const bcrypt = require('bcryptjs');
-const { io } = require('../server');
+// io será passado via req.io através do middleware
 
 const validateCPF = (cpf) => {
   cpf = cpf.replace(/[^\d]/g, '');
@@ -80,7 +80,7 @@ router.put('/me', async (req, res) => {
     if (!user) return res.status(404).json({ message: 'Usuário não encontrado' });
     console.log("Usuário atualizado em /me:", user);
     await History.create({ userId: req.user.id, action: `Atualizou perfil: ${name}`, date: new Date() });
-    if (io) io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
+    if (req.io) req.io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
     res.json({ message: 'Perfil atualizado com sucesso', user: user.toJSON() });
   } catch (error) {
     console.error("Erro ao atualizar perfil em /me:", error);
@@ -108,7 +108,7 @@ router.put('/security', async (req, res) => {
     user.password = await bcrypt.hash(newPassword, salt);
     await user.save();
     await History.create({ userId: req.user.id, action: "Atualizou senha", date: new Date() });
-    if (io) io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
+    if (req.io) req.io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
     res.json({ message: 'Senha atualizada com sucesso' });
   } catch (error) {
     console.error("Erro ao atualizar senha em /security:", error);
@@ -151,7 +151,7 @@ router.put('/business', async (req, res) => {
       { new: true, upsert: true, runValidators: true }
     );
     await History.create({ userId: req.user.id, action: `Atualizou loja: ${name}`, date: new Date() });
-    if (io) io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
+    if (req.io) req.io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
     res.json({ message: 'Dados da loja salvos com sucesso', business });
   } catch (error) {
     console.error("Erro ao salvar dados da loja em /business:", error);
@@ -200,13 +200,13 @@ router.put('/notifications', async (req, res) => {
       { new: true, upsert: true, runValidators: true }
     );
     await History.create({ userId: req.user.id, action: "Atualizou preferências de notificação", date: new Date() });
-    if (io && (notification.emailStatusChanges || notification.smsStatusChanges)) {
-      io.to(req.user.id).emit('notification', {
+    if (req.io && (notification.emailStatusChanges || notification.smsStatusChanges)) {
+      req.io.to(req.user.id).emit('notification', {
         message: 'Preferências de notificação atualizadas com sucesso!',
         type: notification.emailStatusChanges ? 'email' : 'sms'
       });
     }
-    if (io) io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
+    if (req.io) req.io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
     res.json({ message: 'Preferências de notificação salvas com sucesso', notification });
   } catch (error) {
     console.error("Erro ao salvar notificações em /notifications:", error);
@@ -240,7 +240,7 @@ router.post('/payment/cards', async (req, res) => {
     user.cards.push({ number, expiry, cvv, cardLast4 });
     await user.save();
     await History.create({ userId: req.user.id, action: `Adicionou cartão finalizado em ${cardLast4}`, date: new Date() });
-    if (io) io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
+    if (req.io) req.io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
     res.json({ message: 'Cartão adicionado com sucesso', cards: user.cards });
   } catch (error) {
     console.error("Erro ao adicionar cartão em /payment/cards:", error);
@@ -257,7 +257,7 @@ router.delete('/payment/cards/:cardLast4', async (req, res) => {
     user.cards = user.cards.filter(card => card.cardLast4 !== cardLast4);
     await user.save();
     await History.create({ userId: req.user.id, action: `Removeu cartão finalizado em ${cardLast4}`, date: new Date() });
-    if (io) io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
+    if (req.io) req.io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
     res.json({ message: 'Cartão removido com sucesso', cards: user.cards });
   } catch (error) {
     console.error("Erro ao remover cartão em /payment/cards/:cardLast4:", error);
@@ -281,13 +281,13 @@ router.put('/payment', async (req, res) => {
     const updatedPlan = plan || "Plano Básico";
     await History.create({ userId: req.user.id, action: `Atualizou pagamento: Plano ${updatedPlan}, Cartão ${cardLast4}`, date: new Date() });
     const notification = await Notification.findOne({ userId: req.user.id }).lean();
-    if (io && notification?.emailPayment) {
-      io.to(req.user.id).emit('notification', { message: `Pagamento atualizado: Plano ${updatedPlan}`, type: 'email' });
+    if (req.io && notification?.emailPayment) {
+      req.io.to(req.user.id).emit('notification', { message: `Pagamento atualizado: Plano ${updatedPlan}`, type: 'email' });
     }
-    if (io && notification?.smsStatusChanges) {
-      io.to(req.user.id).emit('notification', { message: `Pagamento atualizado: Plano ${updatedPlan}`, type: 'sms' });
+    if (req.io && notification?.smsStatusChanges) {
+      req.io.to(req.user.id).emit('notification', { message: `Pagamento atualizado: Plano ${updatedPlan}`, type: 'sms' });
     }
-    if (io) io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
+    if (req.io) req.io.to(req.user.id).emit('historyUpdate', await History.find({ userId: req.user.id }).sort({ date: -1 }));
     res.json({ message: 'Pagamento atualizado com sucesso! (Simulação)', plan: updatedPlan, cardLast4 });
   } catch (error) {
     console.error('Erro ao processar /payment:', error);

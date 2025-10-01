@@ -23,6 +23,24 @@ router.get('/', async (req, res) => {
 });
 
 // ======================
+// GET /api/deliveries/active-deliveries (entregas ativas)
+// ======================
+router.get('/active-deliveries', async (req, res) => {
+  try {
+    const query = { 
+      merchantId: req.user.id,
+      status: { $in: ['pending', 'scheduled', 'accepted'] }
+    };
+
+    const deliveries = await Delivery.find(query).populate('products');
+    res.json(deliveries);
+  } catch (error) {
+    console.error('Erro ao buscar entregas ativas:', error);
+    res.status(500).json({ message: 'Erro ao buscar entregas ativas', error: error.message });
+  }
+});
+
+// ======================
 // GET /api/deliveries/history (todas)
 // ======================
 router.get('/history', async (req, res) => {
@@ -97,27 +115,79 @@ router.get('/:id', async (req, res) => {
 // ======================
 router.post('/', async (req, res) => {
   try {
-    const { customer, phone, address, products, instructions, totalPrice, estimatedArrival } = req.body;
-    if (!customer || !phone || !address || !products || !totalPrice || !estimatedArrival)
+    const { 
+      customer, 
+      phone, 
+      address, 
+      pickupAddress, 
+      deliveryAddress, 
+      packageType, 
+      packageDetails, 
+      products, 
+      instructions, 
+      totalPrice, 
+      deliveryFee,
+      packageDescription,
+      packageWeight,
+      distanceRange,
+      basePrice,
+      packageMultiplier,
+      estimatedArrival 
+    } = req.body;
+    
+    // Validações básicas
+    if (!customer || !phone || !totalPrice || !estimatedArrival)
       return res.status(400).json({ message: 'Campos obrigatórios ausentes' });
 
-    if (!products.every(p => mongoose.Types.ObjectId.isValid(p)))
-      return res.status(400).json({ message: 'Um ou mais IDs de produtos são inválidos' });
+    // Validar endereços (novo sistema ou sistema antigo)
+    if (!address && (!pickupAddress || !deliveryAddress)) {
+      return res.status(400).json({ message: 'Endereços obrigatórios ausentes' });
+    }
 
-    const validProducts = await Product.find({ _id: { $in: products }, merchantId: req.user.id });
-    if (validProducts.length !== products.length)
-      return res.status(400).json({ message: 'Um ou mais produtos não pertencem ao comerciante' });
+    // Validar tipo de pacote (novo sistema)
+    if (packageType && !['envelope', 'small', 'medium', 'large', 'special'].includes(packageType)) {
+      return res.status(400).json({ message: 'Tipo de pacote inválido' });
+    }
 
-    const delivery = new Delivery({
-      customer, phone, address, products, instructions, totalPrice, estimatedArrival,
+    // Validar produtos (sistema antigo - opcional)
+    if (products && products.length > 0) {
+      if (!products.every(p => mongoose.Types.ObjectId.isValid(p)))
+        return res.status(400).json({ message: 'Um ou mais IDs de produtos são inválidos' });
+
+      const validProducts = await Product.find({ _id: { $in: products }, merchantId: req.user.id });
+      if (validProducts.length !== products.length)
+        return res.status(400).json({ message: 'Um ou mais produtos não pertencem ao comerciante' });
+    }
+
+    // Criar objeto de entrega
+    const deliveryData = {
+      customer,
+      phone,
+      address: address || `${pickupAddress} → ${deliveryAddress}`, // Compatibilidade
+      pickupAddress,
+      deliveryAddress,
+      packageType: packageType || 'medium', // Default para compatibilidade
+      packageDetails,
+      products: products || [], // Array vazio se não fornecido
+      instructions,
+      totalPrice,
+      deliveryFee, // Preço da entrega separado dos produtos
+      packageDescription, // Descrição livre do pacote
+      packageWeight, // Peso aproximado
+      distanceRange, // Faixa de distância selecionada
+      basePrice, // Preço base da distância
+      packageMultiplier, // Multiplicador do tipo de pacote
+      estimatedArrival,
       merchantId: req.user.id
-    });
+    };
 
+    const delivery = new Delivery(deliveryData);
     const savedDelivery = await delivery.save();
+    
     req.io.emit('newDelivery', savedDelivery);
     res.status(201).json({ delivery: savedDelivery });
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao criar entrega:', error);
     res.status(500).json({ message: 'Erro ao criar entrega', error: error.message });
   }
 });
@@ -128,8 +198,12 @@ router.post('/', async (req, res) => {
 router.post('/schedule', async (req, res) => {
   try {
     const { customer, phone, address, products, instructions, totalPrice, estimatedArrival, scheduledAt } = req.body;
-    if (!customer || !phone || !address || !products || !totalPrice || !estimatedArrival || !scheduledAt)
+    if (!customer || !phone || !address || !products || !totalPrice || !estimatedArrival)
       return res.status(400).json({ message: 'Campos obrigatórios ausentes' });
+    
+    if (!scheduledAt) {
+      return res.status(400).json({ message: 'Data de agendamento é obrigatória para entregas agendadas' });
+    }
 
     if (!products.every(p => mongoose.Types.ObjectId.isValid(p)))
       return res.status(400).json({ message: 'Um ou mais IDs de produtos são inválidos' });

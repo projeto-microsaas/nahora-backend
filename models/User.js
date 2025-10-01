@@ -10,9 +10,8 @@ const userSchema = new mongoose.Schema({
   cpf: String,  // Novo campo
 });
 
-userSchema.methods.comparePassword = function (candidatePassword) {
-  // Implementar lógica de hash (ex.: bcrypt)
-  return true; // Placeholder, substitua por bcrypt.compare
+userSchema.methods.comparePassword = async function (candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 
 module.exports = mongoose.model("User", userSchema);
