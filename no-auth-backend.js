@@ -165,6 +165,65 @@ app.post('/api/products', optionalAuth, async (req, res) => {
   }
 });
 
+// Atualizar produto (autenticação opcional)
+app.put('/api/products/:id', optionalAuth, async (req, res) => {
+  try {
+    console.log('📦 Atualizando produto:', req.params.id, req.body);
+    const product = await Product.findByIdAndUpdate(
+      req.params.id, 
+      req.body, 
+      { new: true, runValidators: true }
+    );
+    
+    if (!product) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Produto não encontrado' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: product,
+      message: 'Produto atualizado com sucesso'
+    });
+  } catch (error) {
+    console.error('❌ Erro ao atualizar produto:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Erro ao atualizar produto',
+      error: error.message
+    });
+  }
+});
+
+// Deletar produto (autenticação opcional)
+app.delete('/api/products/:id', optionalAuth, async (req, res) => {
+  try {
+    console.log('📦 Deletando produto:', req.params.id);
+    const product = await Product.findByIdAndDelete(req.params.id);
+    
+    if (!product) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Produto não encontrado' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Produto deletado com sucesso'
+    });
+  } catch (error) {
+    console.error('❌ Erro ao deletar produto:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Erro ao deletar produto',
+      error: error.message
+    });
+  }
+});
+
 // Entregas (autenticação opcional)
 app.get('/api/deliveries', optionalAuth, async (req, res) => {
   try {
@@ -178,6 +237,69 @@ app.get('/api/deliveries', optionalAuth, async (req, res) => {
   } catch (error) {
     console.error('❌ Erro ao buscar entregas:', error);
     res.status(500).json({ message: 'Erro ao carregar entregas' });
+  }
+});
+
+// Deliveries History (autenticação opcional) - DEVE VIR ANTES de /api/deliveries/:id
+app.get('/api/deliveries/history', optionalAuth, async (req, res) => {
+  try {
+    console.log('📋 Buscando histórico de entregas...');
+    console.log('🔍 Query params:', req.query);
+    console.log('🔗 Estado da conexão MongoDB:', mongoose.connection.readyState);
+    
+    const { search = '', page = 1, limit = 10, status = 'all' } = req.query;
+    
+    // Construir filtro
+    const filter = {};
+    if (search) {
+      filter.$or = [
+        { customer: { $regex: search, $options: 'i' } },
+        { 'packageDetails.name': { $regex: search, $options: 'i' } },
+        { packageDescription: { $regex: search, $options: 'i' } }
+      ];
+    }
+    if (status !== 'all') {
+      filter.status = status;
+    }
+    
+    console.log('🔍 Filtro aplicado:', filter);
+    
+    // Verificar se a coleção existe
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    console.log('📚 Coleções disponíveis:', collections.map(c => c.name));
+    
+    // Buscar entregas com paginação (sem populate para evitar erros)
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const deliveries = await Delivery.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean(); // Usar lean() para melhor performance
+    
+    const total = await Delivery.countDocuments(filter);
+    
+    console.log(`✅ Encontradas ${deliveries.length} entregas de ${total} total`);
+    
+    res.json({
+      success: true,
+      data: {
+        deliveries,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ Erro ao buscar histórico de entregas:', error);
+    console.error('❌ Stack trace:', error.stack);
+    res.status(500).json({ 
+      message: 'Erro ao carregar histórico de entregas',
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -254,51 +376,6 @@ app.post('/api/deliveries', optionalAuth, async (req, res) => {
   }
 });
 
-// Deliveries History (autenticação opcional)
-app.get('/api/deliveries/history', optionalAuth, async (req, res) => {
-  try {
-    console.log('📋 Buscando histórico de entregas...');
-    const { search = '', page = 1, limit = 10, status = 'all' } = req.query;
-    
-    // Construir filtro
-    const filter = {};
-    if (search) {
-      filter.$or = [
-        { customer: { $regex: search, $options: 'i' } },
-        { 'packageDetails.description': { $regex: search, $options: 'i' } }
-      ];
-    }
-    if (status !== 'all') {
-      filter.status = status;
-    }
-    
-    // Buscar entregas com paginação
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const deliveries = await Delivery.find(filter)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .populate('products.product', 'name price');
-    
-    const total = await Delivery.countDocuments(filter);
-    
-    res.json({
-      success: true,
-      data: {
-        deliveries,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / parseInt(limit))
-        }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Erro ao buscar histórico de entregas:', error);
-    res.status(500).json({ message: 'Erro ao carregar histórico de entregas' });
-  }
-});
 
 // Stats (autenticação opcional)
 app.get('/api/stats', optionalAuth, async (req, res) => {
@@ -339,6 +416,30 @@ app.get('/api/addresses', optionalAuth, async (req, res) => {
   } catch (error) {
     console.error('❌ Erro ao buscar endereços:', error);
     res.status(500).json({ message: 'Erro ao buscar endereços' });
+  }
+});
+
+// Endpoint específico para mobile (sem autenticação)
+app.get('/api/addresses/mobile', optionalAuth, async (req, res) => {
+  try {
+    console.log('📍 Buscando endereços para mobile...');
+    
+    // Para mobile, retornar endereços sem autenticação obrigatória
+    const addresses = await Address.find({})
+      .sort({ isDefault: -1, createdAt: -1 });
+    
+    res.json({ 
+      success: true,
+      data: { addresses },
+      message: 'Endereços carregados com sucesso'
+    });
+  } catch (error) {
+    console.error('❌ Erro ao buscar endereços para mobile:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Erro ao buscar endereços',
+      error: error.message
+    });
   }
 });
 
