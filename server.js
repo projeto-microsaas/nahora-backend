@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -25,7 +26,15 @@ const io = new Server(server, {
 
 // Middleware CORS
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: [
+    'http://localhost:3000',      // Web frontend
+    'http://127.0.0.1:3000',      // Web frontend (alternativo)
+    'http://localhost:8081',      // React Native Metro
+    'http://127.0.0.1:8081',      // React Native Metro (alternativo)
+    'http://10.0.2.2:8081',       // Android Emulator
+    'http://10.0.0.46:8081',      // IP real para Android
+    'http://10.0.0.46:5000'       // IP real para API
+  ],
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
   credentials: true
@@ -55,7 +64,7 @@ const authenticateToken = (req, res, next) => {
   }
 
   try {
-    const secret = process.env.JWT_SECRET;
+    const secret = process.env.JWT_SECRET || '7e6ff62ecda93407fc58ca8c4c25b136f0842052c54ebfbe005d3533898af8ab563a0d46f6087b4ff1f0d6ad560410cd4ec76e96ecb957d2c7f6717213311223759f1fed04bd2616a7df7de1a8279e7fd051864674bfae20d959cf3fe09e7114704e72b94bc6708d96a1596a90c1d0b25afc97daac80f9d12b5e38c53d9938c209def8d552d7d68bdc18d384cea72cc743cc33c18e1ea5d4013ed5d471dd1fd40bc615f0f0e837b5f2c3f41e6ce14bcaf0077d8a4c95063869474169cab213b69a742691918728d615baf6191f8f1d9f755a48fecb779e6be5af403415c8392f4978aae24694f9bbb889484bace1f52649e355528b65677a08d4986ff6a177a3';
     if (!secret) {
       console.log('JWT_SECRET ausente');
       return res.status(500).json({ message: 'JWT_SECRET ausente' });
@@ -71,11 +80,18 @@ const authenticateToken = (req, res, next) => {
 };
 
 // Conectar ao MongoDB
-mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/nahora', {
+const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/nahora';
+console.log('Tentando conectar ao MongoDB:', mongoUri);
+
+mongoose.connect(mongoUri, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-}).then(() => console.log('Conectado ao MongoDB'))
-  .catch(err => console.error('Erro ao conectar ao MongoDB:', err));
+}).then(() => {
+  console.log('✅ Conectado ao MongoDB com sucesso!');
+}).catch(err => {
+  console.error('❌ Erro ao conectar ao MongoDB:', err.message);
+  console.log('💡 Dica: Instale o MongoDB ou use MongoDB Atlas');
+});
 
 mongoose.set('strictQuery', true);
 
@@ -140,6 +156,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(`Servidor rodando na porta ${PORT}`));
 
 module.exports = { app };

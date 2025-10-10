@@ -14,7 +14,7 @@ router.get('/', auth, async (req, res) => {
     const stats = await Delivery.aggregate([
       {
         $match: {
-          merchantId: mongoose.Types.ObjectId(merchantId),
+          merchantId: new mongoose.Types.ObjectId(merchantId),
           createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
         },
       },

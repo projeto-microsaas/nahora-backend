@@ -184,7 +184,11 @@ router.post('/', async (req, res) => {
     const delivery = new Delivery(deliveryData);
     const savedDelivery = await delivery.save();
     
-    req.io.emit('newDelivery', savedDelivery);
+    // Emitir evento apenas se io estiver disponível
+    if (req.io) {
+      req.io.emit('newDelivery', savedDelivery);
+    }
+    
     res.status(201).json({ delivery: savedDelivery });
   } catch (error) {
     console.error('Erro ao criar entrega:', error);
