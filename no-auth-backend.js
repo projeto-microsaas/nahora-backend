@@ -12,11 +12,13 @@ const server = http.createServer(app);
 // Configuração do Socket.io
 const io = new Server(server, {
   cors: {
-    origin: true, // Permitir todas as origens
+    origin: ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080", "http://127.0.0.1:8080"],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
   },
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
 });
 
 // Middleware CORS - Permitir todas as origens
@@ -152,7 +154,17 @@ app.get('/api/products', optionalAuth, async (req, res) => {
 app.post('/api/products', optionalAuth, async (req, res) => {
   try {
     console.log('📦 Criando produto:', req.body);
-    const product = new Product(req.body);
+    
+    // Se não há merchantId e não há usuário autenticado, usar um ID padrão
+    const mongoose = require('mongoose');
+    const defaultMerchantId = new mongoose.Types.ObjectId('68dc9b40598466411a0bd253');
+    
+    const productData = {
+      ...req.body,
+      merchantId: req.body.merchantId || req.user?.id || defaultMerchantId // ID padrão do usuário thais@gmail.com
+    };
+    
+    const product = new Product(productData);
     await product.save();
     res.json({
       success: true,
@@ -575,14 +587,29 @@ app.use((req, res) => {
 // WebSocket
 io.on('connection', (socket) => {
   console.log('🔌 Usuário conectado:', socket.id);
+  console.log('🌐 Origin:', socket.handshake.headers.origin);
+  console.log('🔗 Transport:', socket.conn.transport.name);
+  
+  // Enviar confirmação de conexão
+  socket.emit('connected', { 
+    message: 'Conectado ao servidor WebSocket', 
+    socketId: socket.id,
+    timestamp: new Date().toISOString()
+  });
   
   socket.on('join', (userId) => {
     socket.join(userId);
     console.log(`👤 Usuário ${userId} entrou na sala`);
+    socket.emit('joined', { room: userId, message: 'Entrou na sala com sucesso' });
   });
   
-  socket.on('disconnect', () => {
-    console.log('🔌 Usuário desconectado:', socket.id);
+  socket.on('disconnect', (reason) => {
+    console.log('🔌 Usuário desconectado:', socket.id, 'Motivo:', reason);
+  });
+  
+  // Eventos de teste
+  socket.on('ping', () => {
+    socket.emit('pong', { timestamp: new Date().toISOString() });
   });
 });
 
